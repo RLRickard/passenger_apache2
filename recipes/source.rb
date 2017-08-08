@@ -15,6 +15,7 @@
 # limitations under the License.
 
 include_recipe "build-essential"
+include_recipe "chef-vault"
 
 node.default['passenger']['apache_mpm']  = 'prefork'
 
@@ -43,8 +44,32 @@ else
   end
 end
 
-gem_package "passenger" do
-  version node['passenger']['version']
+if node['passenger']['enterprise']
+  secrets_databag = chef_vault_item(node['passenger']['data_bag_name'], node['passenger']['data_bag_item'])
+  gem_package "passenger" do
+    action :remove
+    options '-x'
+  end
+  gem_package "passenger-enterprise-server" do
+    version node['passenger']['version']
+    source "https://download:#{secrets_databag['enterprise_token']}@www.phusionpassenger.com/enterprise_gems/"
+  end
+  if secrets_databag.key?('enterprise_license')
+    file "/etc/passenger-enterprise-license" do
+      content secrets_databag['enterprise_license']
+      mode "0644"
+    end
+  end
+  node.override['passenger']['root_path'] = "#{node['languages']['ruby']['gems_dir']}/gems/passenger-enterprise-server-#{node['passenger']['version']}"
+  node.override['passenger']['module_path'] = "#{node['passenger']['root_path']}/#{PassengerConfig.build_directory_for_version(node['passenger']['version'])}/apache2/mod_passenger.so"
+else
+  gem_package "passenger-enterprise-server" do
+    action :remove
+    options '-x'
+  end
+  gem_package "passenger" do
+    version node['passenger']['version']
+  end
 end
 
 execute "passenger_module" do
